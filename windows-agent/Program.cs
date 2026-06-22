@@ -12,7 +12,6 @@
 // per-user toasts from a session-0 Windows Service, which is why this self-starts
 // via a logon scheduled task rather than as a service.
 
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Net.NetworkInformation;
@@ -25,7 +24,8 @@ using Windows.UI.Notifications.Management;
 
 internal static class Program
 {
-    private const string TaskName = "NotifyBridgeAgent";
+    private const string RunValueName = "NotifyBridgeAgent";
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
     private static readonly HashSet<uint> Seen = new();
@@ -359,6 +359,9 @@ internal static class Program
     private static extern bool AttachConsole(int dwProcessId);
     private const int AttachParentProcess = -1;
 
+    // Autostart via the per-user HKCU Run key: no admin rights, runs in the
+    // interactive session at logon, which is exactly what UserNotificationListener
+    // needs. (A scheduled task in the root folder would require elevation.)
     private static int Install()
     {
         AttachConsole(AttachParentProcess);
@@ -368,45 +371,38 @@ internal static class Program
             Console.WriteLine("could not determine own exe path");
             return 1;
         }
-
-        // ONLOGON + interactive token (/IT) so it runs in the user session
-        // without storing a password. /RL LIMITED — no admin needed.
-        int rc = RunSchtasks(
-            $"/Create /TN {TaskName} /TR \"\\\"{exe}\\\"\" /SC ONLOGON " +
-            $"/RL LIMITED /IT /F");
-        Console.WriteLine(rc == 0
-            ? $"installed logon task '{TaskName}'. Start now with: schtasks /Run /TN {TaskName}"
-            : $"schtasks failed ({rc})");
-        return rc;
+        try
+        {
+            using Microsoft.Win32.RegistryKey key =
+                Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKeyPath);
+            key.SetValue(RunValueName, $"\"{exe}\"");
+            Console.WriteLine($"installed: starts at logon (HKCU Run '{RunValueName}').");
+            Console.WriteLine($"start now without logging out:  Start-Process \"{exe}\"");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"install failed: {ex.Message}");
+            return 1;
+        }
     }
 
     private static int Uninstall()
     {
         AttachConsole(AttachParentProcess);
-        int rc = RunSchtasks($"/Delete /TN {TaskName} /F");
-        Console.WriteLine(rc == 0 ? $"removed task '{TaskName}'" : $"schtasks failed ({rc})");
-        return rc;
-    }
-
-    private static int RunSchtasks(string args)
-    {
-        var psi = new ProcessStartInfo("schtasks.exe", args)
+        try
         {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        using var p = Process.Start(psi);
-        if (p == null)
-        {
-            return -1;
+            using Microsoft.Win32.RegistryKey? key =
+                Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            key?.DeleteValue(RunValueName, throwOnMissingValue: false);
+            Console.WriteLine("uninstalled: removed logon entry.");
+            return 0;
         }
-        string outp = p.StandardOutput.ReadToEnd();
-        string err = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        if (!string.IsNullOrWhiteSpace(outp)) Console.Write(outp);
-        if (!string.IsNullOrWhiteSpace(err)) Console.Write(err);
-        return p.ExitCode;
+        catch (Exception ex)
+        {
+            Console.WriteLine($"uninstall failed: {ex.Message}");
+            return 1;
+        }
     }
 
     // ---- logging ----------------------------------------------------------

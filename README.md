@@ -56,20 +56,21 @@ cd windows-agent
 dotnet publish -c Release -r win-x64 --self-contained false
 # copy config.example.json -> config.json next to the published exe, set the token
 cd bin\Release\net10.0-windows10.0.19041.0\win-x64\publish
-.\NotifyBridgeAgent.exe --install     # self-registers a hidden logon task (schtasks)
-schtasks /Run /TN NotifyBridgeAgent   # start now without logging out
+.\NotifyBridgeAgent.exe --install        # add per-user logon autostart (no admin)
+Start-Process .\NotifyBridgeAgent.exe    # start now without logging out
 ```
 
-`--uninstall` removes the task. First launch triggers a one-time Windows
-permission prompt for notification access (Settings → Privacy & security →
-Notifications). Grant it once.
+`--uninstall` removes the autostart entry. First launch triggers a one-time
+Windows permission prompt for notification access (Settings → Privacy & security
+→ Notifications). Grant it once.
 
-### Why a logon task and not a Windows Service
+### Why HKCU Run, not a Windows Service or root task
 
 `UserNotificationListener` only works in the interactive user session. A
-session-0 Windows Service cannot read per-user toasts, so the agent must run as
-the logged-in user — hence a logon scheduled task, which the exe registers
-itself (no PowerShell needed).
+session-0 Windows Service cannot read per-user toasts, and a scheduled task in
+the root folder needs elevation. So the agent self-registers under the per-user
+`HKCU\...\CurrentVersion\Run` key — no admin, runs as the logged-in user at
+logon, which is what the API requires. No PowerShell needed.
 
 ### Host discovery
 
