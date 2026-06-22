@@ -1,15 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <!-- net8.0-windows10.0.19041.0 gives direct access to the
+    <!-- WinExe = no console window flashes at logon. The --install/--uninstall
+         commands attach to the parent console so they can still print. -->
+    <OutputType>WinExe</OutputType>
+    <!-- net10.0-windows10.0.19041.0 gives direct access to the
          Windows.UI.Notifications.Management WinRT projections. -->
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>NotifyBridgeAgent</AssemblyName>
-    <!-- Run without flashing a console window when launched at logon. -->
-    <DisableWinExeOutputInference>true</DisableWinExeOutputInference>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

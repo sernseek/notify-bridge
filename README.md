@@ -49,15 +49,36 @@ On NixOS this is normally deployed via the home-manager module, not run by hand.
 
 ## Windows agent
 
+Requires the .NET 10 SDK. Built as a `WinExe` (no console window at logon).
+
 ```powershell
 cd windows-agent
 dotnet publish -c Release -r win-x64 --self-contained false
-# copy config.example.json -> config.json next to the exe, fill in endpoint/token
-.\register-task.ps1   # run hidden at logon via Task Scheduler
+# copy config.example.json -> config.json next to the published exe, set the token
+cd bin\Release\net10.0-windows10.0.19041.0\win-x64\publish
+.\NotifyBridgeAgent.exe --install     # self-registers a hidden logon task (schtasks)
+schtasks /Run /TN NotifyBridgeAgent   # start now without logging out
 ```
 
-First launch triggers a one-time Windows permission prompt for notification
-access (Settings → Privacy → Notifications). Grant it once.
+`--uninstall` removes the task. First launch triggers a one-time Windows
+permission prompt for notification access (Settings → Privacy & security →
+Notifications). Grant it once.
+
+### Why a logon task and not a Windows Service
+
+`UserNotificationListener` only works in the interactive user session. A
+session-0 Windows Service cannot read per-user toasts, so the agent must run as
+the logged-in user — hence a logon scheduled task, which the exe registers
+itself (no PowerShell needed).
+
+### Host discovery
+
+With `"endpoint": "auto"` (the default) the agent scans every up IPv4
+interface's local /24 for a host answering `GET /health` on `port`, preferring
+gateways and `.1/.2`. The first responder is cached and reused; on a send
+failure it rescans. This means the VMware NAT subnet can change without editing
+any IP. Set an explicit `"endpoint": "http://ip:port/notify"` to skip discovery.
 
 Config is read from `config.json` next to the exe, overridable by the
-`NOTIFY_BRIDGE_ENDPOINT` / `NOTIFY_BRIDGE_TOKEN` environment variables.
+`NOTIFY_BRIDGE_ENDPOINT` / `NOTIFY_BRIDGE_TOKEN` environment variables. A log is
+written to `%LOCALAPPDATA%\notify-bridge\agent.log`.
