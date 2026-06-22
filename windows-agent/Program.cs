@@ -50,6 +50,9 @@ internal static class Program
             }
         }
 
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log($"fatal: {e.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, e) => { Log($"unobserved: {e.Exception}"); e.SetObserved(); };
+
         _cfg = Config.Load();
         Log($"start: configEndpoint='{_cfg.Endpoint}' port={_cfg.Port} token={(string.IsNullOrEmpty(_cfg.Token) ? "no" : "yes")}");
 
@@ -64,17 +67,14 @@ internal static class Program
 
         // Prime the seen-set so we don't replay the existing backlog on startup.
         await Refresh(listener, forward: false);
-        Log("primed; watching for new notifications");
+        Log("primed; polling for new notifications");
 
-        listener.NotificationChanged += async (_, _) =>
-        {
-            try { await Refresh(listener, forward: true); }
-            catch (Exception ex) { Log($"event refresh failed: {ex.Message}"); }
-        };
-
+        // Poll only. UserNotificationListener.NotificationChanged requires a
+        // packaged (MSIX) app with a registered background task; subscribing to
+        // it from an unpackaged exe throws, so we never use it.
         while (true)
         {
-            await Task.Delay(TimeSpan.FromSeconds(5));
+            await Task.Delay(TimeSpan.FromSeconds(3));
             try { await Refresh(listener, forward: true); }
             catch (Exception ex) { Log($"poll refresh failed: {ex.Message}"); }
         }
