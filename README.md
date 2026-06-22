@@ -61,8 +61,8 @@ needs the same one.
 
 ### NixOS (home-manager)
 
-Consume this repo as a `flake = false` input (submodule contents are invisible to
-the flake), then import the module:
+Consume this repo as a `flake = false` input (it is plain source, not a flake),
+then import the module:
 
 ```nix
 # flake.nix
