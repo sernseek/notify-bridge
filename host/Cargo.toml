@@ -1,0 +1,21 @@
+[package]
+name = "notify-bridge-host"
+version = "0.1.0"
+edition = "2021"
+description = "Receive Windows guest notifications over HTTP and re-emit them on the Linux desktop"
+license = "MIT"
+
+[[bin]]
+name = "notify-bridge-host"
+path = "src/main.rs"
+
+[dependencies]
+tiny_http = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify-rust = "4"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

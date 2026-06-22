@@ -1,0 +1,10 @@
+# Rust
+/host/target/
+
+# .NET
+[Bb]in/
+[Oo]bj/
+*.user
+
+# Windows agent local config (contains the shared token)
+/windows-agent/config.json
