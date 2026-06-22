@@ -45,8 +45,19 @@ if (-not $NoInstall -and -not (Test-Admin)) {
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $here
 
+Write-Host "[0/7] stop running agents + clear loose autostart"
+# A running agent locks the publish DLL and makes 'dotnet publish' fail; kill any
+# instance (loose or packaged) first. Also drop the unpackaged HKCU Run autostart
+# — the MSIX StartupTask replaces it, and the loose exe would relock + run without
+# package identity.
+Get-Process NotifyBridgeAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 700
+Remove-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' `
+    -Name NotifyBridgeAgent -ErrorAction SilentlyContinue
+
 Write-Host "[1/7] publish"
 dotnet publish -c $Configuration -r $Rid --self-contained false | Out-Host
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed (exit $LASTEXITCODE) - is an agent still running and locking files?" }
 $publish = Join-Path $here "bin\$Configuration\net10.0-windows10.0.19041.0\$Rid\publish"
 if (-not (Test-Path $publish)) { throw "publish dir not found: $publish" }
 

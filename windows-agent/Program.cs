@@ -444,7 +444,19 @@ internal static class Program
         return dir;
     }
 
-    private static readonly string LogPath = Path.Combine(AppDir(), "agent.log");
+    // Logs go to a machine-level dir, not the user profile: MSIX redirects
+    // per-user writes into the package container where they are hard to find,
+    // but ProgramData is not redirected.
+    private static string LogDir()
+    {
+        string dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "notify-bridge");
+        try { Directory.CreateDirectory(dir); } catch { /* best effort */ }
+        return dir;
+    }
+
+    private static readonly string LogPath = Path.Combine(LogDir(), "agent.log");
 
     private static void Log(string msg)
     {
