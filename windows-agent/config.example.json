@@ -1,5 +1,6 @@
 {
   "endpoint": "auto",
   "port": 8787,
-  "token": ""
+  "token": "",
+  "backstopSeconds": 0
 }

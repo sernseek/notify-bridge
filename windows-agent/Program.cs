@@ -67,16 +67,38 @@ internal static class Program
 
         // Prime the seen-set so we don't replay the existing backlog on startup.
         await Refresh(listener, forward: false);
-        Log("primed; polling for new notifications");
+        Log("primed");
 
-        // Poll only. UserNotificationListener.NotificationChanged requires a
-        // packaged (MSIX) app with a registered background task; subscribing to
-        // it from an unpackaged exe throws, so we never use it.
+        // Primary path: event-driven. NotificationChanged only fires when the app
+        // has package identity (i.e. installed as MSIX). Subscribing from an
+        // unpackaged exe throws, so guard it and fall back to the backstop sync.
+        bool eventDriven = false;
+        try
+        {
+            listener.NotificationChanged += async (_, _) =>
+            {
+                try { await Refresh(listener, forward: true); }
+                catch (Exception ex) { Log($"event refresh failed: {ex.Message}"); }
+            };
+            eventDriven = true;
+            Log("event-driven: subscribed to NotificationChanged");
+        }
+        catch (Exception ex)
+        {
+            Log($"NotificationChanged unavailable ({ex.Message}); backstop sync only");
+        }
+
+        // Backstop re-sync. With events working this is just a safety net (long
+        // interval); without package identity it becomes the actual mechanism.
+        int backstop = _cfg.BackstopSeconds > 0
+            ? _cfg.BackstopSeconds
+            : (eventDriven ? 60 : 3);
+        Log($"backstop sync every {backstop}s");
         while (true)
         {
-            await Task.Delay(TimeSpan.FromSeconds(3));
+            await Task.Delay(TimeSpan.FromSeconds(backstop));
             try { await Refresh(listener, forward: true); }
-            catch (Exception ex) { Log($"poll refresh failed: {ex.Message}"); }
+            catch (Exception ex) { Log($"backstop refresh failed: {ex.Message}"); }
         }
     }
 
@@ -407,16 +429,22 @@ internal static class Program
 
     // ---- logging ----------------------------------------------------------
 
-    private static readonly string LogPath = InitLogPath();
-
-    private static string InitLogPath()
+    /// Stable per-user data dir, used for both config and logs. Uses the real
+    /// profile path (not LocalApplicationData) because MSIX redirects the latter
+    /// into the package container, which is confusing to find.
+    internal static string AppDir()
     {
-        string dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "notify-bridge");
+        string profile = Environment.GetEnvironmentVariable("USERPROFILE") ?? "";
+        if (string.IsNullOrEmpty(profile))
+        {
+            profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+        string dir = Path.Combine(profile, ".notify-bridge");
         try { Directory.CreateDirectory(dir); } catch { /* best effort */ }
-        return Path.Combine(dir, "agent.log");
+        return dir;
     }
+
+    private static readonly string LogPath = Path.Combine(AppDir(), "agent.log");
 
     private static void Log(string msg)
     {
@@ -450,10 +478,19 @@ internal sealed class Config
 
     public string Token { get; set; } = "";
 
+    /// Backstop re-sync interval in seconds. 0 = auto (60s when event-driven,
+    /// 3s when falling back to polling).
+    public int BackstopSeconds { get; set; } = 0;
+
     public static Config Load()
     {
         Config cfg = new();
-        string path = Path.Combine(AppContext.BaseDirectory, "config.json");
+        // Prefer the writable per-user config; fall back to one next to the exe.
+        string path = Path.Combine(Program.AppDir(), "config.json");
+        if (!File.Exists(path))
+        {
+            path = Path.Combine(AppContext.BaseDirectory, "config.json");
+        }
         if (File.Exists(path))
         {
             try

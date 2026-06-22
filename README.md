@@ -49,28 +49,44 @@ On NixOS this is normally deployed via the home-manager module, not run by hand.
 
 ## Windows agent
 
-Requires the .NET 10 SDK. Built as a `WinExe` (no console window at logon).
+Requires the .NET 10 SDK and (for the MSIX build) the Windows 10/11 SDK
+(`MakeAppx.exe` + `SignTool.exe`). Built as a `WinExe` (no console window).
+
+Config and log live in `%USERPROFILE%\.notify-bridge\` (`config.json`,
+`agent.log`) — a stable path that MSIX does not redirect.
+
+### Recommended: MSIX (event-driven, no polling)
+
+`UserNotificationListener.NotificationChanged` only fires when the app has
+package identity, so for real-time delivery the agent is installed as a signed
+MSIX. `build-msix.ps1` does everything (publish → pack → self-signed cert → sign
+→ trust → install) and self-elevates for the trust/install steps:
+
+```powershell
+cd windows-agent
+.\build-msix.ps1
+```
+
+Then put `config.json` in `%USERPROFILE%\.notify-bridge\` (copy
+`config.example.json`, set the `token`), and launch **Notify Bridge Agent** once
+from the Start menu to grant the one-time notification-access prompt. It then
+auto-starts at logon via the manifest's `StartupTask`.
+
+### Alternative: unpackaged (polling fallback)
+
+Without package identity the `NotificationChanged` subscription is unavailable,
+so the agent falls back to a short backstop poll. Lighter to deploy, ~3 s latency:
 
 ```powershell
 cd windows-agent
 dotnet publish -c Release -r win-x64 --self-contained false
-# copy config.example.json -> config.json next to the published exe, set the token
 cd bin\Release\net10.0-windows10.0.19041.0\win-x64\publish
-.\NotifyBridgeAgent.exe --install        # add per-user logon autostart (no admin)
-Start-Process .\NotifyBridgeAgent.exe    # start now without logging out
+.\NotifyBridgeAgent.exe --install        # per-user HKCU Run autostart, no admin
+Start-Process .\NotifyBridgeAgent.exe
 ```
 
-`--uninstall` removes the autostart entry. First launch triggers a one-time
-Windows permission prompt for notification access (Settings → Privacy & security
-→ Notifications). Grant it once.
-
-### Why HKCU Run, not a Windows Service or root task
-
-`UserNotificationListener` only works in the interactive user session. A
-session-0 Windows Service cannot read per-user toasts, and a scheduled task in
-the root folder needs elevation. So the agent self-registers under the per-user
-`HKCU\...\CurrentVersion\Run` key — no admin, runs as the logged-in user at
-logon, which is what the API requires. No PowerShell needed.
+`--uninstall` removes the Run entry. A session-0 Windows Service is not an option
+either way: it cannot read per-user toasts.
 
 ### Host discovery
 
@@ -80,6 +96,6 @@ gateways and `.1/.2`. The first responder is cached and reused; on a send
 failure it rescans. This means the VMware NAT subnet can change without editing
 any IP. Set an explicit `"endpoint": "http://ip:port/notify"` to skip discovery.
 
-Config is read from `config.json` next to the exe, overridable by the
-`NOTIFY_BRIDGE_ENDPOINT` / `NOTIFY_BRIDGE_TOKEN` environment variables. A log is
-written to `%LOCALAPPDATA%\notify-bridge\agent.log`.
+`backstopSeconds` overrides the safety re-sync interval (0 = auto: 60 s when
+event-driven, 3 s when polling). Config values are overridable by the
+`NOTIFY_BRIDGE_ENDPOINT` / `NOTIFY_BRIDGE_TOKEN` environment variables.
